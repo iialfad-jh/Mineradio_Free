@@ -220,3 +220,23 @@ test('search pagination carries provider offsets and ignores stale sessions', ()
   assert.doesNotMatch(scoreSource, /provider\s*===|searchIntentPrefersQQ/,
     'ordinary relevance must not contain platform-specific score boosts');
 });
+
+test('GD Studio search results flow into the merged song list', async () => {
+  const fetchSource = namedFunctionSource(searchSource, 'fetchMusicSearchResults');
+  const expectedSong = { provider: 'gdstudio', id: '42', name: '屋顶', artist: '周杰伦' };
+  const sandbox = {
+    activeSearchProvidersForMode: () => ['gdstudio'],
+    apiJson: async () => ({ songs: [expectedSong], limit: 12, nextOffset: 1, hasMore: false }),
+    controlSourceProviderTitle: (provider) => provider,
+    searchProviderLoginNotice: () => '',
+    searchProviderPagesHaveMore: () => false,
+    mergeSongSearchResults: (gdstudioSongs) => gdstudioSongs,
+    MUSIC_SEARCH_MAX_RESULTS: 20,
+    searchProviderUrl: () => '/api/search',
+    searchProviderNotice: '',
+  };
+  vm.runInNewContext(`${fetchSource}\nthis.fetchResults = fetchMusicSearchResults;`, sandbox);
+
+  const result = await sandbox.fetchResults('周杰伦', 'song');
+  assert.deepEqual(result.songs, [expectedSong]);
+});

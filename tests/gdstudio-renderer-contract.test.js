@@ -40,6 +40,10 @@ test('renderer uses one GD Studio provider and bitrate quality choices', () => {
   assert.match(search, /return '\/api\/search\?keywords='/);
 });
 
+test('renderer initializes first-play state before playback starts', () => {
+  assert.match(core, /var firstPlayDone = false;/);
+});
+
 test('online playback and lyrics use only GD Studio routes', () => {
   assert.match(playback, /gdstudioSource/);
   assert.match(playback, /\/api\/song\/url\?id=/);
