@@ -20,6 +20,7 @@ var lastStrongDrop = 0;           // 用于 burst 预设的强 drop 时刻
 
 var lyricsLines = [], lyricsTranslationLines = [], lyricsVisible = false, lyricsHasNativeKaraoke = false, lyricsTimingSource = 'none', lyricsTranslationSource = 'none';
 var playlist = [], playQueue = [], currentIdx = -1, playing = false, playToggleBusy = false;
+var firstPlayDone = false;
 var searchMode = 'gdstudio', podcastResults = [], podcastPrograms = [], podcastCurrentRadio = null;
 var gdstudioLoginStatus = { provider: 'gdstudio', loggedIn: false, configured: true, searchReady: true, publicCatalog: true, nickname: 'GD Studio' };
 var loginStatus = { loggedIn: false, vipType: 0, vipLevel: 'none', isVip: false, isSvip: false, vipLabel: '无VIP' };

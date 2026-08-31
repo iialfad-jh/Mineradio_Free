@@ -1052,7 +1052,7 @@ async function fetchMusicSearchResults(q, mode, previousPages) {
     if (value.message && !songs.length && !searchProviderNotice) searchProviderNotice = value.message;
   });
   var songs = mergeSongSearchResults(
-    songsByProvider.netease,
+    songsByProvider.gdstudio,
     songsByProvider.qq,
     songsByProvider.kugou,
     songsByProvider.qishui,

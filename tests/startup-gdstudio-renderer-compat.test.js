@@ -12,4 +12,6 @@ const runtime = fs.readFileSync(path.join(root, 'public/js/modules/08-account/01
 test('GD Studio runtime supplies modal backdrop compatibility after account modules are removed', () => {
   assert.match(shell, /bindModalBackdropClose\(\)/);
   assert.match(runtime, /function bindModalBackdropClose\(\)/);
+  assert.match(runtime, /function openGsapModal\(mask\)/);
+  assert.match(runtime, /function closeGsapModal\(mask, afterClose\)/);
 });
