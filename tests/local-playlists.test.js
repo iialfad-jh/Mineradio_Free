@@ -13,6 +13,32 @@ const modulePath = path.join(
   '05-playback',
   '02a-local-playlists.js'
 );
+const collectSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'modules', '05-playback', '06-track-detail-lyrics-actions.js'), 'utf8');
+
+function namedFunctionSource(source, name) {
+  const declaration = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
+  assert.ok(declaration, `missing ${name}()`);
+  const bodyStart = source.indexOf('{', declaration.index + declaration[0].length);
+  let depth = 0;
+  let quote = '';
+  let escaped = false;
+  for (let index = bodyStart; index < source.length; index += 1) {
+    const character = source[index];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = '';
+      continue;
+    }
+    if (character === '"' || character === "'" || character === '`') { quote = character; continue; }
+    if (character === '{') depth += 1;
+    if (character === '}') {
+      depth -= 1;
+      if (depth === 0) return source.slice(declaration.index, index + 1);
+    }
+  }
+  throw new Error(`unterminated ${name}()`);
+}
 
 function loadLocalPlaylistModule(values, options) {
   const store = values || new Map();
@@ -121,4 +147,34 @@ test('keeps JSON-safe local song fields, caps playlists, and derives catalog row
   assert.equal(sandbox.removeSongFromLocalPlaylist(created.playlist.id, 0).removed, true);
   assert.equal(sandbox.deleteLocalPlaylist(created.playlist.id).deleted, true);
   assert.deepEqual(JSON.parse(JSON.stringify(sandbox.syncLocalPlaylistCatalog())), []);
+});
+
+test('collect dialog routes songs to local playlist mutations', () => {
+  assert.match(collectSource, /createLocalPlaylist\(name\)/);
+  assert.match(collectSource, /addSongToLocalPlaylist\(pid, targetSong\)/);
+  assert.doesNotMatch(namedFunctionSource(collectSource, 'openCollectModal'), /ensureLoggedInForAction/);
+});
+
+test('local playlist detail and playback paths are wired without remote loading', () => {
+  const detailSource = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'modules', '06-lyrics', '02-playlist-detail.js'), 'utf8');
+  assert.match(detailSource, /provider === ['"]local['"]/);
+  assert.match(detailSource, /data-pl-detail-delete/);
+  assert.match(detailSource, /data-pl-detail-remove/);
+  assert.match(detailSource, /playLocalPlaylist\(pid/);
+});
+
+test('plays a saved local playlist through the existing queue path', async () => {
+  const sandbox = loadLocalPlaylistModule();
+  sandbox.playQueue = [];
+  sandbox.currentIdx = -1;
+  const list = sandbox.createLocalPlaylist('出发').playlist;
+  sandbox.addSongToLocalPlaylist(list.id, { provider: 'gdstudio', id: '2', name: '晴天', artist: '周杰伦' });
+  sandbox.playQueueAt = async (index) => { sandbox.playedIndex = index; };
+  sandbox.safeRenderQueuePanel = () => {};
+  sandbox.safeSwitchPlaylistTab = () => {};
+  sandbox.safeShelfRebuild = () => {};
+  sandbox.cancelPlaylistQueueHydration = () => {};
+  assert.equal(await sandbox.playLocalPlaylist(list.id, 0, { autoplay: true }), true);
+  assert.equal(sandbox.playQueue[0].name, '晴天');
+  assert.equal(sandbox.playedIndex, 0);
 });

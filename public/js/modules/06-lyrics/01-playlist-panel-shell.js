@@ -501,12 +501,12 @@ function mergePlaylistCatalogRows(existing, incoming, provider) {
 }
 function rebuildUserPlaylistsFromCatalog(opts) {
   opts = opts || {};
-  userPlaylists = neteasePlaylists.concat(qqPlaylists, kugouPlaylists, qishuiPlaylists, spotifyPlaylists);
+  userPlaylists = typeof localPlaylistCatalogRows === 'function' ? localPlaylistCatalogRows() : [];
   if (typeof applyUserPlaylistOrder === 'function') applyUserPlaylistOrder();
   playlistCatalogRevision += 1;
   renderUserPlaylistsList({ animate: !!opts.animate, reset: !!opts.reset, preserveScroll: opts.preserveScroll !== false });
   if (emptyHomeActive) renderHomeDiscover();
-  scheduleShelfRebuild(opts.reason || 'playlist-catalog-page', true);
+  scheduleShelfRebuild(opts.reason || 'local-playlist-catalog', true);
 }
 async function loadPlaylistCatalogProviderPage(provider, reason) {
   return false;
@@ -516,9 +516,8 @@ function playlistCatalogHasPendingPages() {
   return Object.keys(providers).some(function (key) { return providers[key] && (providers[key].loading || providers[key].hasMore); });
 }
 function requestNextPlaylistCatalogPage() { return false; }
-async function refreshUserPlaylists(force) {
+async function refreshUserPlaylists() {
   resetPlaylistPanelRenderLimit();
-  var empty = document.getElementById('pl-list');
-  if (empty) empty.innerHTML = '<div style="text-align:center;padding:24px 0;color:rgba(255,255,255,.32);font-size:11.5px">本地音乐请从导入入口添加</div>';
-  return false;
+  rebuildUserPlaylistsFromCatalog({ reason: 'local-playlist-refresh', preserveScroll: true });
+  return true;
 }

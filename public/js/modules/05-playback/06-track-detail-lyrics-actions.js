@@ -1281,17 +1281,10 @@ function toggleLikeSearchResult(i) { if (playlist[i]) toggleLikeSong(playlist[i]
 function toggleLikeQueueIndex(i) { if (playQueue[i]) toggleLikeSong(playQueue[i]); }
 function toggleLikeDetailSong(song) { toggleLikeSong(song); }
 function openCollectModal(song) {
-  var provider = songAccountProvider(song);
-  var adapter = songAccountAdapter(provider);
-  if (!adapter || !adapter.collect || !adapter.playlistAddUrl) {
-    showToast(songAccountUnsupportedMessage(provider, 'collect'));
-    return;
-  }
-  if (!ensureLoggedInForAction(provider)) return;
+  if (!song || !song.name) { showToast('当前歌曲信息不完整'); return; }
   collectTargetSong = song;
   renderCollectModal();
   openGsapModal(document.getElementById('collect-modal'));
-  refreshUserPlaylists(true).then(function () { renderCollectModal(); }).catch(function () { renderCollectModal(); });
 }
 function openCollectModalForCurrent() { openCollectModal(currentCoverSong()); }
 function collectSearchResult(i) { if (playlist[i]) openCollectModal(playlist[i]); }
@@ -1312,25 +1305,9 @@ function renderCollectModal() {
   var cover = songCoverSrc(song, 80);
   current.innerHTML = (cover ? '<img src="' + cover + '" alt="">' : '<div class="cover-placeholder"></div>') +
     '<div style="min-width:0"><div class="collect-title">' + escHtml(song.name || '当前歌曲') + '</div><div class="collect-sub">' + escHtml(song.artist || '') + '</div></div>';
-  var provider = songAccountProvider(song);
-  var adapter = songAccountAdapter(provider);
-  if (!adapter || !adapter.collect) {
-    list.innerHTML = '<div class="collect-empty">' + escHtml(songAccountUnsupportedMessage(provider, 'collect')) + '</div>';
-    return;
-  }
-  if (!isSongAccountLoggedIn(provider)) {
-    list.innerHTML = '<div class="collect-empty">登录' + escHtml(adapter.label) + '后显示你的歌单</div>';
-    return;
-  }
-  if (!userPlaylists.length) {
-    list.innerHTML = miniQueueSkeleton();
-    return;
-  }
-  var mine = userPlaylists.filter(function (pl) {
-    return playlistAccountProvider(pl) === provider && !pl.subscribed && !pl.virtual;
-  });
+  var mine = typeof localPlaylistCatalogRows === 'function' ? localPlaylistCatalogRows() : [];
   if (!mine.length) {
-    list.innerHTML = '<div class="collect-empty">还没有可写入的歌单，可以先新建一个</div>';
+    list.innerHTML = '<div class="collect-empty">还没有本地歌单，可以先新建一个</div>';
     return;
   }
   list.innerHTML = mine.map(function (pl) {
@@ -1349,34 +1326,14 @@ function setCollectBusyPid(pid, busy) {
     item.classList.toggle('busy', !!busy && item.getAttribute('data-collect-pid') === String(pid));
   });
 }
-async function createPlaylistFromCollect() {
-  var provider = songAccountProvider(collectTargetSong);
-  var adapter = songAccountAdapter(provider);
-  if (!adapter || !adapter.createPlaylist || !adapter.playlistCreateUrl) {
-    showToast((adapter && adapter.label || '当前平台') + '暂不支持在 Mineradio 内新建歌单');
-    return;
-  }
-  if (!ensureLoggedInForAction(provider)) return;
+function createPlaylistFromCollect() {
   var input = document.getElementById('collect-new-name');
-  var name = input ? input.value.trim() : '';
-  if (!name) { showToast('先输入歌单名称'); return; }
-  try {
-    var r = await apiJson(adapter.playlistCreateUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: name })
-    });
-    if (r && (r.error || r.success === false)) throw new Error(r.error || r.message || 'PLAYLIST_CREATE_FAILED');
-    if (input) input.value = '';
-    showToast('歌单已创建');
-    await refreshUserPlaylists(true);
-    renderCollectModal();
-    var created = r && r.playlist;
-    var pid = created && created.id;
-    if (pid && collectTargetSong) addCollectTargetToPlaylist(pid);
-  } catch (err) {
-    showToast('创建歌单失败');
-  }
+  var name = input ? input.value : '';
+  var result = createLocalPlaylist(name);
+  if (!result.ok) { showToast(result.error === 'NAME_REQUIRED' ? '先输入歌单名称' : '本地歌单保存失败'); return; }
+  if (input) input.value = '';
+  showToast('本地歌单已创建');
+  addCollectTargetToPlaylist(result.playlist.id);
 }
 function collectResultMessage(r) {
   if (!r) return '收藏失败';
@@ -1426,44 +1383,12 @@ async function verifySongInPlaylist(pid, song) {
   }
   return false;
 }
-async function addCollectTargetToPlaylist(pid) {
-  if (collectBusy || !collectTargetSong || !pid) return;
+function addCollectTargetToPlaylist(pid) {
+  if (!collectTargetSong || !pid) return;
   var targetSong = collectTargetSong;
-  var provider = songAccountProvider(targetSong);
-  var adapter = songAccountAdapter(provider);
-  if (!adapter || !adapter.collect || !adapter.playlistAddUrl) {
-    showToast(songAccountUnsupportedMessage(provider, 'collect'));
-    return;
-  }
-  if (!ensureLoggedInForAction(provider)) return;
-  collectBusy = true;
-  setCollectBusyPid(pid, true);
-  updateLikeButtons();
-  showToast('正在收藏到歌单...');
-  try {
-    var songId = songAccountId(targetSong, provider);
-    if (!songId) throw new Error('当前歌曲缺少' + adapter.label + '歌曲标识');
-    var r = await apiJson(adapter.playlistAddUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ pid: pid, id: songId, song: targetSong })
-    });
-    if (!r || r.error || r.success === false) throw new Error(collectResultMessage(r));
-    showToast('已收藏到歌单');
-    closeCollectModal();
-    refreshUserPlaylists(true);
-    setTimeout(function () {
-      verifySongInPlaylist(pid, targetSong).then(function (ok) {
-        if (!ok) console.warn(provider + ' collect submitted but verify did not find song yet:', pid, songId);
-      });
-    }, 900);
-  } catch (err) {
-    showToast(err && err.message ? err.message : '收藏失败');
-  } finally {
-    collectBusy = false;
-    setCollectBusyPid(pid, false);
-    updateLikeButtons();
-  }
+  var result = addSongToLocalPlaylist(pid, targetSong);
+  if (result.ok) { showToast('已加入本地歌单'); closeCollectModal(); return; }
+  showToast(result.error === 'DUPLICATE_SONG' ? '歌曲已在歌单中' : '加入本地歌单失败');
 }
 function cloneSong(song) { return hydrateCustomCover(Object.assign({}, song)); }
 function avatarSrc(url) {

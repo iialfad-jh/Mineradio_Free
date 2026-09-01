@@ -28,6 +28,17 @@ test('loader excludes old account runtime and loads GD Studio compatibility runt
   assert.doesNotMatch(loader, /00-login-easter-egg|01-login-modal-utils|02-login-status|03-login-modal-flows|04-user-modal-logout|05-startup-login-guide/);
 });
 
+test('local playlist runtime is loaded without restoring online playlist APIs', () => {
+  assert.match(loader, /05-playback\/02a-local-playlists\.js/);
+  const playlistShell = read('public/js/modules/06-lyrics/01-playlist-panel-shell.js');
+  const playlistDetail = read('public/js/modules/06-lyrics/02-playlist-detail.js');
+  assert.match(playlistShell, /localPlaylistCatalogRows\(\)/);
+  assert.match(playlistDetail, /labels\s*=\s*\{[^}]*local:\s*['"]本地歌单['"]/);
+  assert.match(playlistDetail, /order\s*=\s*\[['"]local['"]/);
+  assert.match(playlistDetail, /groups\s*=\s*\{\s*local:\s*\[\]/);
+  assert.doesNotMatch(playlistShell, /\/api\/(?:qq|kugou|qishui|spotify|login)\/playlist/);
+});
+
 test('renderer uses one GD Studio provider and bitrate quality choices', () => {
   assert.match(core, /gdstudio/);
   assert.match(core, /\b128\b/);

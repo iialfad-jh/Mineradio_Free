@@ -191,3 +191,20 @@ function syncLocalPlaylistCatalog(opts) {
   }
   return localPlaylistCatalogRows();
 }
+
+async function playLocalPlaylist(id, startIndex, opts) {
+  opts = opts || {};
+  var playlist = getLocalPlaylist(id);
+  if (!playlist || !playlist.songs.length) {
+    if (typeof showToast === 'function') showToast('歌单为空');
+    return false;
+  }
+  if (typeof cancelPlaylistQueueHydration === 'function') cancelPlaylistQueueHydration('local-playlist');
+  playQueue = playlist.songs.map(function (song) { return Object.assign({}, song); });
+  currentIdx = Math.max(0, Math.min(playQueue.length - 1, Number(startIndex) || 0));
+  if (typeof safeRenderQueuePanel === 'function') safeRenderQueuePanel('local-playlist-play', { animate: true, scrollCurrent: true, deferWhenHidden: false });
+  if (typeof safeSwitchPlaylistTab === 'function') safeSwitchPlaylistTab('queue', 'local-playlist-play');
+  if (typeof safeShelfRebuild === 'function') safeShelfRebuild('local-playlist-play', true);
+  if (opts.autoplay !== false && typeof playQueueAt === 'function') await playQueueAt(currentIdx, { preserveHomeState: !!opts.preserveHomeState });
+  return true;
+}

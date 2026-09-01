@@ -164,6 +164,7 @@ function playlistPanelDetailRowsHtml(options) {
   start = Math.max(0, Math.min(start, Math.max(0, tracks.length - maxRows)));
   end = Math.min(tracks.length, Math.max(end, start + maxRows));
   var rows = '<div class="pl-detail-virtual-spacer" aria-hidden="true" style="height:' + (start * PLAYLIST_DETAIL_ROW_STEP) + 'px"></div>';
+  var isLocal = normalizePlaylistProvider(st.playlist && st.playlist.provider) === 'local';
   rows += tracks.slice(start, end).map(function (song, localIndex) {
     var i = start + localIndex;
     var thumb = songCoverSrc(song, 60);
@@ -172,6 +173,7 @@ function playlistPanelDetailRowsHtml(options) {
       imgTag +
       '<div style="flex:1;min-width:0"><div class="pl-detail-row-title">' + escHtml(song.name || '') + '</div>' +
       '<button type="button" class="pl-detail-row-artist" data-pl-detail-artist="' + i + '">' + escHtml(song.artist || '未知歌手') + '</button></div>' +
+      (isLocal ? '<button type="button" class="pl-detail-row-remove" data-pl-detail-remove="' + i + '" title="从歌单移除">移除</button>' : '') +
       '</div>';
   }).join('');
   rows += '<div class="pl-detail-virtual-spacer" aria-hidden="true" style="height:' + (Math.max(0, tracks.length - end) * PLAYLIST_DETAIL_ROW_STEP) + 'px"></div>';
@@ -268,10 +270,11 @@ function playlistPanelDetailHtml(pl, provider, detailWindow) {
   var collectionButton = canUncollect
     ? '<button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-collection="0">取消收藏</button>'
     : '';
+  var localDeleteButton = provider === 'local' ? '<button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-delete="1">删除歌单</button>' : '';
   return '<div class="pl-inline-detail" data-pl-detail="' + escHtml(key) + '" style="height:' + playlistPanelDetailShellHeight() + 'px">' +
     '<div class="pl-detail-sticky">' +
     '<div class="pl-detail-head">' + img + '<div style="flex:1;min-width:0"><div class="pl-detail-title">' + escHtml(pl.name || '歌单详情') + '</div><div class="pl-detail-sub">' + escHtml((expectedTotal || tracks.length || 0) + ' 首 · ' + (pl.creator || playlistProviderName(provider))) + '</div></div><div class="pl-detail-count">' + (loading && !tracks.length ? '载入中' : (tracks.length + (expectedTotal > tracks.length ? '/' + expectedTotal : ''))) + '</div></div>' +
-    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + '"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>播放歌单</button>' + collectionButton + '<button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-top="1">回到顶部</button></div>' +
+    '<div class="pl-detail-actions"><button class="pl-detail-play" type="button" data-pl-detail-play="' + escHtml(key) + '"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>播放歌单</button>' + collectionButton + localDeleteButton + '<button class="fx-mini-btn ghost pl-detail-top-btn" type="button" data-pl-detail-top="1">回到顶部</button></div>' +
     '</div>' +
     '<div class="pl-detail-list" data-pl-detail-scroll="' + escHtml(key) + '">' + rows + '</div>' +
     '</div>';
@@ -417,6 +420,17 @@ async function openPlaylistPanelDetail(provider, pid, title) {
   cancelPlaylistPanelDetailRequest();
   var token = ++playlistPanelDetailState.token;
   playlistPanelDetailState = { key: key, loading: true, loadingMore: false, playlist: pl, tracks: [], token: token, total: Number(pl.trackCount) || 0, nextOffset: 0, hasMore: true, scrollTop: 0, controller: null, warmTimer: 0, renderLimit: PLAYLIST_DETAIL_INITIAL_RENDER, error: '', message: '' };
+  if (provider === 'local') {
+    var local = typeof getLocalPlaylist === 'function' ? getLocalPlaylist(pid) : null;
+    playlistPanelDetailState.playlist = local || pl;
+    playlistPanelDetailState.tracks = local ? local.songs.map(cloneSong) : [];
+    playlistPanelDetailState.total = playlistPanelDetailState.tracks.length;
+    playlistPanelDetailState.loading = false;
+    playlistPanelDetailState.hasMore = false;
+    renderPlaylistPanelDetailState();
+    scrollPlaylistPanelDetailIntoView(key);
+    return;
+  }
   renderPlaylistPanelDetailState();
   scrollPlaylistPanelDetailIntoView(key);
   await loadMorePlaylistPanelDetailTracks('initial');
@@ -427,6 +441,10 @@ function playPlaylistPanelDetail() {
   var parts = st.key.split(':');
   var provider = normalizePlaylistProvider(parts[0]);
   var pid = parts.slice(1).join(':');
+  if (provider === 'local') {
+    playLocalPlaylist(pid, 0, { autoplay: true, preserveHomeState: true });
+    return;
+  }
   loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, st.playlist && st.playlist.name || '');
 }
 async function togglePlaylistPanelCollection(collected) {
@@ -472,6 +490,10 @@ function playPlaylistPanelDetailTrack(index) {
   var parts = playlistPanelDetailState.key.split(':');
   var provider = normalizePlaylistProvider(parts[0]);
   var pid = parts.slice(1).join(':');
+  if (provider === 'local') {
+    playLocalPlaylist(pid, index, { autoplay: true, preserveHomeState: true });
+    return;
+  }
   loadPlaylistIntoQueueById(playlistPanelProviderId(provider, pid), true, playlistPanelDetailState.playlist && playlistPanelDetailState.playlist.name || '', {
     seedTracks: tracks,
     startIndex: index,
@@ -523,9 +545,9 @@ function playlistPanelBuildVirtualEntries() {
   if (playlistPanelVirtualCache.revision === playlistCatalogRevision &&
       playlistPanelVirtualCache.detailKey === playlistPanelDetailState.key &&
       playlistPanelVirtualCache.detailSig === detailSig) return playlistPanelVirtualCache;
-  var labels = { netease: '网易云歌单', qq: 'QQ 音乐歌单', kugou: '酷狗音乐歌单', qishui: '汽水音乐歌单', spotify: 'Spotify 歌单' };
-  var order = ['netease', 'qq', 'kugou', 'qishui', 'spotify'];
-  var groups = { netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
+  var labels = { local: '本地歌单', netease: '网易云歌单', qq: 'QQ 音乐歌单', kugou: '酷狗音乐歌单', qishui: '汽水音乐歌单', spotify: 'Spotify 歌单' };
+  var order = ['local', 'netease', 'qq', 'kugou', 'qishui', 'spotify'];
+  var groups = { local: [], netease: [], qq: [], kugou: [], qishui: [], spotify: [] };
   userPlaylists.forEach(function (pl, sourceIndex) {
     var key = playlistPanelGroupKey(pl);
     if (!groups[key]) groups[key] = [];
@@ -704,6 +726,40 @@ document.getElementById('pl-list').addEventListener('click', function (e) {
     e.preventDefault();
     e.stopPropagation();
     scrollPlaylistPanelToTop();
+    return;
+  }
+  var detailRemove = e.target && e.target.closest ? e.target.closest('[data-pl-detail-remove]') : null;
+  if (detailRemove) {
+    e.preventDefault();
+    e.stopPropagation();
+    var removeParts = playlistPanelDetailState.key.split(':');
+    var removeProvider = normalizePlaylistProvider(removeParts[0]);
+    if (removeProvider === 'local') {
+      var removePid = removeParts.slice(1).join(':');
+      var removeResult = removeSongFromLocalPlaylist(removePid, Number(detailRemove.getAttribute('data-pl-detail-remove')));
+      if (removeResult.ok) {
+        playlistPanelDetailState.playlist = getLocalPlaylist(removePid);
+        playlistPanelDetailState.tracks = playlistPanelDetailState.playlist ? playlistPanelDetailState.playlist.songs.map(cloneSong) : [];
+        playlistPanelDetailState.total = playlistPanelDetailState.tracks.length;
+        renderPlaylistPanelDetailState();
+      }
+    }
+    return;
+  }
+  var detailDelete = e.target && e.target.closest ? e.target.closest('[data-pl-detail-delete]') : null;
+  if (detailDelete) {
+    e.preventDefault();
+    e.stopPropagation();
+    var deleteParts = playlistPanelDetailState.key.split(':');
+    var deleteProvider = normalizePlaylistProvider(deleteParts[0]);
+    if (deleteProvider === 'local') {
+      var deletePid = deleteParts.slice(1).join(':');
+      var deleteResult = deleteLocalPlaylist(deletePid);
+      if (deleteResult.ok) {
+        playlistPanelDetailState = { key: '', tracks: [], playlist: null, loading: false, hasMore: false };
+        renderPlaylistPanelDetailState();
+      }
+    }
     return;
   }
   var playDetail = e.target && e.target.closest ? e.target.closest('[data-pl-detail-play]') : null;
